@@ -43,50 +43,64 @@ func main() {
 	flag.Var(&ports, "e", "Use UDP port for emulator. Can be repeated for more ports. Example: trezord-go -e 21324 -e 21326")
 	flag.Parse()
 
-	var logger io.Writer
+	var lw io.Writer
 	if logfile != "" {
-		logger = &lumberjack.Logger{
+		lw = &lumberjack.Logger{
 			Filename:   logfile,
 			MaxSize:    5, // megabytes
 			MaxBackups: 3,
 		}
 	} else {
-		logger = os.Stderr
+		lw = os.Stderr
 	}
 
 	m := memorywriter.New(2000)
-	logger = io.MultiWriter(logger, m)
 
-	log.SetOutput(logger)
-	log.Println("trezord is starting.")
+	detailedLogWriter := memorywriter.New(3000)
+	logWriter := io.MultiWriter(lw, m, detailedLogWriter)
 
-	w, err := usb.InitWebUSB()
+	logger := log.New(logWriter, "", log.LstdFlags)
+	detailedLogger := log.New(detailedLogWriter, "details: ", log.LstdFlags)
+
+	logger.Println("trezord is starting.")
+
+	detailedLogger.Println("Initing webusb")
+	w, err := usb.InitWebUSB(logger, detailedLogger)
+
 	if err != nil {
-		log.Fatalf("webusb: %s", err)
+		logger.Fatalf("webusb: %s", err)
 	}
-	h, err := usb.InitHIDAPI()
+
+	detailedLogger.Println("Initing hidapi")
+	h, err := usb.InitHIDAPI(logger, detailedLogger)
 	if err != nil {
-		log.Fatalf("hidapi: %s", err)
+		logger.Fatalf("hidapi: %s", err)
 	}
 
 	var b *usb.USB
 
+	detailedLogger.Printf("UDP port count - %d\n", len(ports))
 	if len(ports) > 0 {
 		e, errUDP := usb.InitUDP(ports)
 		if errUDP != nil {
-			log.Fatalf("emulator: %s", errUDP)
+			logger.Fatalf("emulator: %s", errUDP)
 		}
 		b = usb.Init(w, h, e)
 	} else {
 		b = usb.Init(w, h)
 	}
 
-	s, err := server.New(b, logger, m)
+	detailedLogger.Println("Creating HTTP server")
+	s, err := server.New(b, logWriter, m, detailedLogWriter, logger, detailedLogger)
 	if err != nil {
-		log.Fatalf("https: %s", err)
+		logger.Fatalf("https: %s", err)
 	}
+
+	detailedLogger.Println("Running HTTP server")
 	err = s.Run()
 	if err != nil {
-		log.Fatalf("https: %s", err)
+		logger.Fatalf("https: %s", err)
 	}
+
+	detailedLogger.Println("Main ended successfully")
 }
