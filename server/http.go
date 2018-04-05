@@ -238,6 +238,7 @@ func (s *Server) Listen(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot stream", http.StatusInternalServerError)
 		return
 	}
+	cnn := cn.CloseNotify()
 
 	const (
 		iterMax   = 600
@@ -273,7 +274,7 @@ func (s *Server) Listen(w http.ResponseWriter, r *http.Request) {
 		if reflect.DeepEqual(entries, e) {
 			s.dlogger.Println("http - listen equal, waiting")
 			select {
-			case <-cn.CloseNotify():
+			case <-cnn:
 				s.dlogger.Println("http - listen request closed")
 				return
 			default:
